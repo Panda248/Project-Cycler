@@ -25,6 +25,7 @@ Kill the child process, increment, startup next project
 import os
 import argparse
 import subprocess
+import signal
 import time
 from pathlib import Path
 
@@ -40,12 +41,9 @@ class ProjectCycler:
         self.next_switch_at = interval_seconds
 
     def _find_startup_file(self, project_path: str | Path):
-        # TODO: define actual startup-file convention for each project.
-        candidates = ['run.bat']
-        for candidate in candidates:
-            path = os.path.join(project_path, candidate)
-            if os.path.isfile(path):
-                return path
+        path = os.path.join(project_path, "run.sh")
+        if os.path.isfile(path):
+            return path
         return None
 
     def onstartup(self):
@@ -83,9 +81,9 @@ class ProjectCycler:
         proj_dir = self.project_directorys[i]
         print(f"Running {start_file} from {proj_dir}")
         return subprocess.Popen(
-            ["powershell", "./run.bat", "pause"],
+            ["bash", start_file],
             cwd=proj_dir,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            start_new_session=True,
         )
 
     def _stop_project(self):
@@ -97,17 +95,25 @@ class ProjectCycler:
         if process.poll() is not None:
             return
 
-        result = subprocess.run(
-            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0 and process.poll() is None:
-            raise RuntimeError(
-                f"Could not stop project process tree for PID {process.pid}: "
-                f"{result.stderr.strip()}"
+        if os.name == "nt":
+            result = subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                check=False,
             )
+            if result.returncode != 0 and process.poll() is None:
+                raise RuntimeError(
+                    f"Could not stop project process tree for PID {process.pid}: "
+                    f"{result.stderr.strip()}"
+                )
+        else:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+
         process.wait()
 
     def onloop(self):
