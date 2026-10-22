@@ -65,7 +65,7 @@ class ProjectCycler:
                 self.project_directorys.append(project_path)
                 print(
                     f"Startup File Found: {startup_file}, added in position {len(self.startup_files)}")
-            else :
+            else:
                 print("WARNING: NO STARTUP FILE FOUND. Skipping...")
 
         if not self.startup_files:
@@ -81,44 +81,50 @@ class ProjectCycler:
         proj_dir = self.project_directorys[i]
         print(f"Running {start_file} from {proj_dir}")
         return subprocess.Popen(
-            ["bash", start_file],
+            ["bash", os.path.basename(start_file)],
             cwd=proj_dir,
-            start_new_session=True,
         )
 
     def _stop_project(self):
-        process = self.current_process
-        if process is None:
+        # process = self.current_process
+        if self.current_process is None:
             return
 
-        self.current_process = None
-        if process.poll() is not None:
-            return
+        self.current_process.terminate()
 
-        if os.name == "nt":
-            result = subprocess.run(
-                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if result.returncode != 0 and process.poll() is None:
-                raise RuntimeError(
-                    f"Could not stop project process tree for PID {process.pid}: "
-                    f"{result.stderr.strip()}"
-                )
-        else:
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
+        try :
+            exit_code = self.current_process.wait(timeout=5)
+            print(f"Terminated with code {exit_code}")
+        except subprocess.TimeoutExpired:
+            print("Killing process")
+            self.current_process.kill()
+        # if process.poll() is not None:
+        #     return
+        # process.terminate()
+        # if os.name == "nt":
+        #     result = subprocess.run(
+        #         ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+        #         capture_output=True,
+        #         text=True,
+        #         check=False,
+        #     )
+        #     if result.returncode != 0 and process.poll() is None:
+        #         raise RuntimeError(
+        #             f"Could not stop project process tree for PID {process.pid}: "
+        #             f"{result.stderr.strip()}"
+        #         )
+        # else:
+        #     try:
+        #         os.killpg(process.pid, signal.SIGTERM)
+        #         process.wait(timeout=10)
+        #     except subprocess.TimeoutExpired:
+        #         os.killpg(process.pid, signal.SIGKILL)
 
-        process.wait()
+        # process.wait()
 
     def onloop(self):
         self._stop_project()
-
+        # self.current_process.terminate()
         self.current_index = (self.current_index + 1) % len(self.startup_files)
         self.current_process = self._start_project(self.current_index)
         self.next_switch_at = time.monotonic() + self.interval_seconds
@@ -143,7 +149,7 @@ if __name__ == "__main__":
         "--delay",
         "-d",
         type=float,
-        default=10,
+        default=60,
         metavar="SECONDS",
         help="time to run each project before switching (default: 10 seconds)",
     )
